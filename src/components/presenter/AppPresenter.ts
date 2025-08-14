@@ -1,216 +1,271 @@
-import { EventEmitter } from "../base/events";
-import { ProductModel } from "../models/ProductModel";
-import { CartModel } from "../models/CartModel";
-import { FormModel } from "../models/FormModel";
-import { OrderModel } from "../models/OrderModel";
-import { ModalView } from "../views/ModalView";
-import { CardView } from "../views/CardView";
-import { CardPreviewView } from "../views/CardPreviewView";
-import { CartView } from "../views/CartView";
-import { OrderFormView } from "../views/OrderFormView";
-import { ContactsFormView } from "../views/ContactsFormView";
-import { IProduct, IOrder, IOrderResult } from "../../types";
-import { ensureElement } from "../../utils/utils";
+import { EventEmitter } from '../base/events';
+import { ProductModel } from '../models/ProductModel';
+import { CartModel } from '../models/CartModel';
+import { FormModel } from '../models/FormModel';
+import { OrderModel } from '../models/OrderModel';
+import { ModalView } from '../views/ModalView';
+import { CardView } from '../views/CardView';
+import { CardPreviewView } from '../views/CardPreviewView';
+import { CartView } from '../views/CartView';
+import { CartItemView } from '../views/CartItemView';
+import { OrderFormView } from '../views/OrderFormView';
+import { ContactsFormView } from '../views/ContactsFormView';
+import { PageView } from '../views/PageView';
+import { IProduct, IOrder, IOrderResult } from '../../types';
+import { ensureElement } from '../../utils/utils';
+import { ApiService } from '../../services/ApiService';
 
 export class AppPresenter {
-    private cartView: CartView;
-    private orderFormView: OrderFormView;
-    private contactsFormView: ContactsFormView;
-    private cardCatalogTemplate: HTMLTemplateElement;
-    private cardPreviewTemplate: HTMLTemplateElement;
-    private cartItemTemplate: HTMLTemplateElement;
-    private orderTemplate: HTMLTemplateElement;
-    private contactsTemplate: HTMLTemplateElement;
-    private cartButton: HTMLButtonElement;
-    private cartCounter: HTMLElement;
-    private isCartOpen: boolean = false;
+	private pageView: PageView;
+	private cartView: CartView;
+	private orderFormView: OrderFormView;
+	private contactsFormView: ContactsFormView;
+	private cardCatalogTemplate: HTMLTemplateElement;
+	private cardPreviewTemplate: HTMLTemplateElement;
+	private cartItemTemplate: HTMLTemplateElement;
+	private isCartOpen: boolean = false;
 
-    constructor(
-        private events: EventEmitter,
-        private productModel: ProductModel,
-        private cartModel: CartModel,
-        private formModel: FormModel,
-        private orderModel: OrderModel,
-        private modalView: ModalView
-    ) {
-        this.cardCatalogTemplate = ensureElement<HTMLTemplateElement>('#card-catalog');
-        this.cardPreviewTemplate = ensureElement<HTMLTemplateElement>('#card-preview');
-        this.cartItemTemplate = ensureElement<HTMLTemplateElement>('#card-basket');
-        this.orderTemplate = ensureElement<HTMLTemplateElement>('#order');
-        this.contactsTemplate = ensureElement<HTMLTemplateElement>('#contacts');
-        this.cartButton = ensureElement<HTMLButtonElement>('.header__basket');
-        this.cartCounter = ensureElement<HTMLElement>('.header__basket-counter');
-        
-        this.cartView = new CartView(ensureElement<HTMLTemplateElement>('#basket'), events);
-        this.orderFormView = new OrderFormView(this.orderTemplate, events);
-        this.contactsFormView = new ContactsFormView(this.contactsTemplate, events);
+	constructor(
+		private events: EventEmitter,
+		private productModel: ProductModel,
+		private cartModel: CartModel,
+		private formModel: FormModel,
+		private orderModel: OrderModel,
+		private modalView: ModalView,
+		private apiService: ApiService
+	) {
+		this.pageView = new PageView(events);
+		this.cartView = new CartView(events);
+		this.orderFormView = new OrderFormView(
+			ensureElement<HTMLTemplateElement>('#order'),
+			events
+		);
+		this.contactsFormView = new ContactsFormView(
+			ensureElement<HTMLTemplateElement>('#contacts'),
+			events
+		);
+		this.cardCatalogTemplate =
+			ensureElement<HTMLTemplateElement>('#card-catalog');
+		this.cardPreviewTemplate =
+			ensureElement<HTMLTemplateElement>('#card-preview');
+		this.cartItemTemplate = ensureElement<HTMLTemplateElement>('#card-basket');
 
-        this.setupEventHandlers();
-    }
+		this.setupEventHandlers();
+	}
 
-    private setupEventHandlers(): void {
-        // Загрузка продуктов
-        this.events.on('products:loaded', (products: IProduct[]) => {
-            this.productModel.setProducts(products);
-            this.renderProducts(products);
-        });
+	private setupEventHandlers(): void {
+		// Загрузка продуктов
+		this.events.on('products:loaded', (products: IProduct[]) => {
+			this.productModel.setProducts(products);
+			const productElements = products.map((product) => {
+				const card = new CardView(this.cardCatalogTemplate, this.events);
+				return card.render(product);
+			});
+			this.pageView.renderProducts(productElements);
+		});
 
-        // Выбор карточки
-        this.events.on('card:select', (product: IProduct) => {
-            this.productModel.setSelectedProduct(product);
-            const preview = new CardPreviewView(this.cardPreviewTemplate, this.events);
-            this.modalView.setContent(preview.render(product));
-            this.modalView.open();
-        });
+		// Выбор карточки
+		this.events.on('card:select', (product: IProduct) => {
+			this.productModel.setSelectedProduct(product);
+			const preview = new CardPreviewView(
+				this.cardPreviewTemplate,
+				this.events
+			);
 
-        // Добавление в корзину
-        this.events.on('cart:add', (product: IProduct) => {
-            this.cartModel.addItem(product);
-            this.updateCartCounter();
-            this.modalView.close();
-        });
+			// Проверяем, есть ли товар в корзине
+			const inCart = this.cartModel
+				.getItems()
+				.some((item) => item.id === product.id);
 
-        // Изменение корзины
-        this.events.on('cart:changed', () => {
-            this.updateCartCounter();
-            
-            // Обновляем корзину только если она открыта
-            if (this.isCartOpen) {
-                const cartContent = this.cartView.renderItems(
-                    this.cartModel.getItems(), 
-                    this.cartItemTemplate
-                );
-                this.cartView.updateTotal(this.cartModel.getTotal());
-                this.modalView.setContent(cartContent);
-            }
-        });
+			this.modalView.setContent(preview.render(product, inCart));
+			this.modalView.open();
+		});
 
-        // Открытие корзины
-        this.cartButton.addEventListener('click', () => {
-            this.isCartOpen = true;
-            const cartContent = this.cartView.renderItems(
-                this.cartModel.getItems(), 
-                this.cartItemTemplate
-            );
-            this.cartView.updateTotal(this.cartModel.getTotal());
-            this.modalView.setContent(cartContent);
-            this.modalView.open();
-        });
+		// Добавление в корзину
+		this.events.on('cart:add', (product: IProduct) => {
+			this.cartModel.addItem(product);
+			this.pageView.updateCartCounter(this.cartModel.getCount());
+			this.modalView.close();
+		});
 
-        // Закрытие модального окна
-        this.events.on('modal:close', () => {
-            this.isCartOpen = false;
-        });
+		// Изменение корзины
+		this.events.on('cart:changed', () => {
+			this.pageView.updateCartCounter(this.cartModel.getCount());
 
-        // Удаление из корзины
-        this.events.on('cart:remove', (itemId: string) => {
-            this.cartModel.removeItem(itemId);
-        });
+			if (this.isCartOpen) {
+				const cartItems = this.cartModel.getItems().map((item, index) => {
+					const cartItem = new CartItemView(this.cartItemTemplate, this.events);
+					return cartItem.render(item, index + 1);
+				});
+				this.cartView.setItems(cartItems);
+				this.cartView.updateTotal(this.cartModel.getTotal());
 
-        // Обработка оформления заказа
-        this.events.on('order:open', () => {
-            this.formModel.reset();
-            this.modalView.setContent(this.orderFormView.render(this.formModel.getData()));
-            this.modalView.open();
-            this.validateOrderForm();
-        });
+				// Обновляем корзину, но не меняем содержимое, если уже показываем корзину
+				if (this.modalView.isOpen()) {
+					// Проверяем, что текущее содержимое - это корзина
+					if (this.modalView.containsClass('basket')) {
+						this.modalView.setContent(this.cartView.getContainer());
+					}
+				}
+			}
 
-        // Обновление данных заказа
-        this.events.on('order:payment', (payment: string) => {
-            this.formModel.setField('payment', payment);
-            this.validateOrderForm();
-        });
+			// Обновляем превью товара, если оно открыто и корзина не открыта
+			const selectedProduct = this.productModel.getSelectedProduct();
+			if (this.modalView.isOpen() && selectedProduct && !this.isCartOpen) {
+				const preview = new CardPreviewView(
+					this.cardPreviewTemplate,
+					this.events
+				);
+				const inCart = this.cartModel
+					.getItems()
+					.some((item) => item.id === selectedProduct.id);
+				this.modalView.setContent(preview.render(selectedProduct, inCart));
+			}
+		});
 
-        this.events.on('order:address', (address: string) => {
-            this.formModel.setField('address', address);
-            this.validateOrderForm();
-        });
+		// Открытие корзины
+		this.events.on('cart:open', () => {
+			this.isCartOpen = true;
+			const cartItems = this.cartModel.getItems().map((item, index) => {
+				const cartItem = new CartItemView(this.cartItemTemplate, this.events);
+				return cartItem.render(item, index + 1);
+			});
+			this.cartView.setItems(cartItems);
+			this.cartView.updateTotal(this.cartModel.getTotal());
+			this.modalView.setContent(this.cartView.getContainer());
+			this.modalView.open();
+		});
 
-        // Переход к контактам
-        this.events.on('order:submit', () => {
-            if (this.formModel.validateOrder()) {
-                this.modalView.setContent(this.contactsFormView.render(this.formModel.getData()));
-                this.validateContactsForm();
-            } else {
-                this.validateOrderForm();
-            }
-        });
+		// Закрытие модального окна
+		this.events.on('modal:close', () => {
+			this.isCartOpen = false;
+		});
 
-        // Обновление контактных данных
-        this.events.on('contacts:email', (email: string) => {
-            this.formModel.setField('email', email);
-            this.validateContactsForm();
-        });
+		// Удаление из корзины
+		this.events.on('cart:remove', (itemId: string) => {
+			this.cartModel.removeItem(itemId);
+		});
 
-        this.events.on('contacts:phone', (phone: string) => {
-            this.formModel.setField('phone', phone);
-            this.validateContactsForm();
-        });
+		// Обработка оформления заказа
+		this.events.on('order:open', () => {
+			this.formModel.reset();
+			this.modalView.setContent(
+				this.orderFormView.render(this.formModel.getData())
+			);
+			this.modalView.open();
+			this.validateOrderForm();
+		});
 
-        // Отправка заказа
-        this.events.on('contacts:submit', () => {
-            if (this.formModel.validateContacts()) {
-                const orderData: IOrder = {
-                    ...this.formModel.getData(),
-                    items: this.cartModel.getItems().map(item => item.id),
-                    total: this.cartModel.getTotal()
-                };
-                this.orderModel.submitOrder(orderData);
-            } else {
-                this.validateContactsForm();
-            }
-        });
+		// Обновление данных заказа
+		this.events.on('order:payment', (payment: string) => {
+			this.formModel.setField('payment', payment);
+			this.validateOrderForm();
+		});
 
-        // Успешное оформление заказа
-        this.events.on('order:success', (result: IOrderResult) => {
-            this.cartModel.clear();
-            this.formModel.reset();
-            this.updateCartCounter();
-            
-            // Показываем окно успеха
-            const successTemplate = ensureElement<HTMLTemplateElement>('#success');
-            const successContent = successTemplate.content.cloneNode(true) as DocumentFragment;
-            const description = successContent.querySelector('.order-success__description');
-            if (description) {
-                description.textContent = `Списано ${result.total} синапсов`;
-            }
-            const closeButton = successContent.querySelector('.order-success__close');
-            if (closeButton) {
-                closeButton.addEventListener('click', () => this.modalView.close());
-            }
-            
-            // Конвертируем DocumentFragment в HTMLElement для установки в модальное окно
-            const container = document.createElement('div');
-            container.appendChild(successContent);
-            this.modalView.setContent(container);
-        });
-    }
+		this.events.on('order:address', (address: string) => {
+			this.formModel.setField('address', address);
+			this.validateOrderForm();
+		});
 
-    private validateOrderForm(): void {
-        const valid = this.formModel.validateOrder();
-        const errors = Object.values(this.formModel.getOrderErrors()).filter(Boolean).join('; ');
-        this.orderFormView.setErrors(errors);
-        this.orderFormView.setValid(valid);
-    }
+		// Переход к контактам
+		this.events.on('order:submit', () => {
+			if (this.formModel.validateOrder()) {
+				this.modalView.setContent(
+					this.contactsFormView.render(this.formModel.getData())
+				);
+				this.validateContactsForm();
+			} else {
+				this.validateOrderForm();
+			}
+		});
 
-    private validateContactsForm(): void {
-        const valid = this.formModel.validateContacts();
-        const errors = Object.values(this.formModel.getContactsErrors()).filter(Boolean).join('; ');
-        this.contactsFormView.setErrors(errors);
-        this.contactsFormView.setValid(valid);
-    }
+		// Обновление контактных данных
+		this.events.on('contacts:email', (email: string) => {
+			this.formModel.setField('email', email);
+			this.validateContactsForm();
+		});
 
-    private renderProducts(products: IProduct[]): void {
-        const gallery = ensureElement<HTMLElement>('.gallery');
-        gallery.innerHTML = '';
-        
-        products.forEach(product => {
-            const card = new CardView(this.cardCatalogTemplate, this.events);
-            gallery.appendChild(card.render(product));
-        });
-    }
+		this.events.on('contacts:phone', (phone: string) => {
+			this.formModel.setField('phone', phone);
+			this.validateContactsForm();
+		});
 
-    private updateCartCounter(): void {
-        this.cartCounter.textContent = this.cartModel.getCount().toString();
-    }
+		// Отправка заказа
+		this.events.on('contacts:submit', async () => {
+			if (this.formModel.validateContacts()) {
+				const orderData: IOrder = {
+					...this.formModel.getData(),
+					items: this.cartModel.getItems().map((item) => item.id),
+					total: this.cartModel.getTotal(),
+				};
+
+				try {
+					const result = await this.apiService.submitOrder(orderData);
+					this.events.emit('order:success', result);
+				} catch (error) {
+					this.events.emit('order:error', error);
+				}
+			} else {
+				this.validateContactsForm();
+			}
+		});
+
+		// Успешное оформление заказа
+		this.events.on('order:success', (result: IOrderResult) => {
+			this.cartModel.clear();
+			this.formModel.reset();
+			this.pageView.updateCartCounter(0);
+
+			const successTemplate = ensureElement<HTMLTemplateElement>('#success');
+			const successContent = successTemplate.content.cloneNode(
+				true
+			) as DocumentFragment;
+			const description = successContent.querySelector(
+				'.order-success__description'
+			);
+			if (description) {
+				description.textContent = `Списано ${result.total} синапсов`;
+			}
+
+			const container = document.createElement('div');
+			container.appendChild(successContent);
+
+			// Добавляем обработчик для кнопки закрытия
+			const closeButton = container.querySelector('.order-success__close');
+			if (closeButton) {
+				closeButton.addEventListener('click', () => {
+					this.modalView.close();
+				});
+			}
+
+			this.modalView.setContent(container);
+		});
+
+		// Блокировка страницы при открытии модального окна
+		this.events.on('modal:open', () => {
+			this.pageView.setLocked(true);
+		});
+
+		this.events.on('modal:close', () => {
+			this.pageView.setLocked(false);
+		});
+	}
+
+	private validateOrderForm(): void {
+		const valid = this.formModel.validateOrder();
+		const errors = Object.values(this.formModel.getOrderErrors())
+			.filter(Boolean)
+			.join('; ');
+		this.orderFormView.setErrors(errors);
+		this.orderFormView.setValid(valid);
+	}
+
+	private validateContactsForm(): void {
+		const valid = this.formModel.validateContacts();
+		const errors = Object.values(this.formModel.getContactsErrors())
+			.filter(Boolean)
+			.join('; ');
+		this.contactsFormView.setErrors(errors);
+		this.contactsFormView.setValid(valid);
+	}
 }

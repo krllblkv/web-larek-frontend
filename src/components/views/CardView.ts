@@ -22,7 +22,7 @@ export class CardView {
         });
     }
 
-    render(data: IProduct): HTMLElement {
+    render(data: IProduct, ...args: any[]): HTMLElement {
         this.data = data;
         this.titleElement.textContent = data.title;
         this.imageElement.src = data.image;

@@ -1,46 +1,63 @@
-import { ensureElement } from "../../utils/utils";
-import { EventEmitter } from "../base/events";
+import { ensureElement } from '../../utils/utils';
+import { EventEmitter } from '../base/events';
 
 export class ModalView {
-    protected container: HTMLElement;
-    protected contentElement: HTMLElement;
-    protected closeButton: HTMLButtonElement;
+	protected container: HTMLElement;
+	protected contentElement: HTMLElement;
+	protected closeButton: HTMLButtonElement;
+	getContent: any;
 
-    constructor(containerId: string, protected events: EventEmitter) {
-        this.container = ensureElement<HTMLElement>(`#${containerId}`);
-        this.contentElement = ensureElement<HTMLElement>('.modal__content', this.container);
-        this.closeButton = ensureElement<HTMLButtonElement>('.modal__close', this.container);
-        
-        this.closeButton.addEventListener('click', this.close.bind(this));
-        this.container.addEventListener('click', this.handleOutsideClick.bind(this));
-        this.contentElement.addEventListener('click', (event) => event.stopPropagation());
-    }
+	constructor(containerId: string, protected events: EventEmitter) {
+		this.container = ensureElement<HTMLElement>(`#${containerId}`);
+		this.contentElement = ensureElement<HTMLElement>(
+			'.modal__content',
+			this.container
+		);
+		this.closeButton = ensureElement<HTMLButtonElement>(
+			'.modal__close',
+			this.container
+		);
 
-    open(): void {
-        this.container.classList.add('modal_active');
-        document.body.classList.add('page__wrapper_locked');
-        this.events.emit('modal:open');
-    }
+		this.closeButton.addEventListener('click', this.close.bind(this));
+		this.container.addEventListener(
+			'click',
+			this.handleOutsideClick.bind(this)
+		);
+		this.contentElement.addEventListener('click', (event) =>
+			event.stopPropagation()
+		);
+	}
 
-    close(): void {
-        this.container.classList.remove('modal_active');
-        document.body.classList.remove('page__wrapper_locked');
-        this.contentElement.innerHTML = '';
-        this.events.emit('modal:close');
-    }
+	open(): void {
+		this.container.classList.add('modal_active');
+		this.events.emit('modal:open');
+	}
 
-    setContent(content: HTMLElement): void {
-        this.contentElement.innerHTML = '';
-        this.contentElement.appendChild(content);
-    }
+	close(): void {
+		this.container.classList.remove('modal_active');
+		this.contentElement.innerHTML = '';
+		this.events.emit('modal:close');
+	}
 
-    private handleOutsideClick(event: MouseEvent): void {
-        if (event.target === this.container) {
-            this.close();
-        }
-    }
+	setContent(content: HTMLElement): void {
+		this.contentElement.innerHTML = '';
+		this.contentElement.appendChild(content);
+	}
 
-    isOpen(): boolean {
-        return this.container.classList.contains('modal_active');
-    }
+	private handleOutsideClick(event: MouseEvent): void {
+		if (event.target === this.container) {
+			this.close();
+		}
+	}
+
+	isOpen(): boolean {
+		return this.container.classList.contains('modal_active');
+	}
+	containsClass(className: string): boolean {
+		return (
+			this.contentElement.classList.contains(className) ||
+			this.contentElement.firstElementChild?.classList.contains(className) ||
+			false
+		);
+	}
 }
